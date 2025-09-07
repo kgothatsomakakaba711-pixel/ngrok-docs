@@ -1,20 +1,88 @@
----
-hide_table_of_contents: true
-displayed_sidebar: docs
----
 
-import { InlineCode } from "@ngrok/mantle/inline-code";
-import ErrorDetails from "/src/components/ErrorDetails";
-import { EndpointUrlOrigin } from "/src/components/search-params-endpoint-url";
+//+------------------------------------------------------------------+
+//|   Simple Moving Average Bot for MetaTrader 5                    |
+//|   Works with Exness or any MT5 broker                           |
+//+------------------------------------------------------------------+
+#property copyright "Your Bot"
+#property version   "1.00"
+#property strict
 
-# ERR_NGROK_3200
+input int      MA_Period = 14;       // Moving Average Period
+input double   LotSize   = 0.10;     // Lot size
+input double   StopLoss  = 200;      // Stop Loss in points
+input double   TakeProfit= 400;      // Take Profit in points
 
-### Message
+int handleMA;
 
-The endpoint <InlineCode><EndpointUrlOrigin fallback="HOSTNAME" /></InlineCode> is offline.
+//+------------------------------------------------------------------+
+//| Expert initialization                                            |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   handleMA = iMA(_Symbol, PERIOD_M15, MA_Period, 0, MODE_SMA, PRICE_CLOSE);
+   if(handleMA == INVALID_HANDLE)
+     {
+      Print("Error creating MA indicator");
+      return INIT_FAILED;
+     }
+   return INIT_SUCCEEDED;
+  }
 
-<ErrorDetails error="err_ngrok_3200" />
+//+------------------------------------------------------------------+
+//| Expert deinitialization                                          |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   IndicatorRelease(handleMA);
+  }
 
-### Further help
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+   double ma[];
+   if(CopyBuffer(handleMA,0,0,2,ma) < 2) return;
 
-If you're having trouble resolving this error, please reach out to [support@ngrok.com](mailto:support@ngrok.com?subject=Help%20with%20ERR_NGROK_3200)
+   double lastMA = ma[1];
+   double prevMA = ma[0];
+
+   double lastPrice = iClose(_Symbol, PERIOD_M15, 1);
+
+   // Check open positions
+   int total = PositionsTotal();
+   bool hasPosition = false;
+   for(int i=0; i<total; i++)
+     {
+      if(PositionGetSymbol(i) == _Symbol)
+         hasPosition = true;
+     }
+
+   if(!hasPosition)
+     {
+      if(lastPrice > lastMA) // BUY
+        {
+         OpenTrade(ORDER_TYPE_BUY);
+        }
+      else if(lastPrice < lastMA) // SELL
+        {
+         OpenTrade(ORDER_TYPE_SELL);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Open Trade function                                              |
+//+------------------------------------------------------------------+
+void OpenTrade(int type)
+  {
+   double price = (type==ORDER_TYPE_BUY) ? SymbolInfoDouble(_Symbol,SYMBOL_ASK) 
+                                         : SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double sl,tp;
+
+   if(type==ORDER_TYPE_BUY)
+     {
+      sl = price - StopLoss * _Point;
+      tp = price + TakeProfit * _Point;
+     }
+   else
